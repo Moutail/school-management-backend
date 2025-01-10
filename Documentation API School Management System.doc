@@ -1,0 +1,144 @@
+# API Documentation - School Management System
+
+## Base URL
+`http://localhost:5000/api`
+
+## Authentication
+All protected routes require a Bearer token in the Authorization header:
+```http
+Authorization: Bearer <jwt_token>
+```
+
+## Routes
+
+### Authentication
+
+#### POST /auth/register
+Register a new user.
+```json
+{
+  "username": "string",
+  "email": "string",
+  "password": "string",
+  "firstName": "string",
+  "lastName": "string",
+  "role": "student|professor|parent|admin|major"
+}
+```
+
+#### POST /auth/login
+Login user.
+```json
+{
+  "email": "string",
+  "password": "string"
+}
+```
+
+### Users
+
+#### GET /users/profile
+Get current user profile.
+
+#### PATCH /users/profile
+Update user profile.
+```json
+{
+  "firstName": "string",
+  "lastName": "string",
+  "phoneNumber": "string",
+  "profileImage": "string"
+}
+```
+
+### Academic
+
+#### GET /academic/periods
+Get all academic periods.
+
+#### POST /academic/periods
+Create new academic period (Admin only).
+```json
+{
+  "name": "string",
+  "startDate": "date",
+  "endDate": "date",
+  "status": "ACTIVE|UPCOMING|COMPLETED"
+}
+```
+
+### Documents
+
+#### POST /documents/course-materials
+Upload course materials (Professor only).
+```http
+Content-Type: multipart/form-data
+
+documents: [file]
+courseId: string
+periodId: string
+title?: string
+```
+
+#### POST /documents/attendance-proof
+Upload attendance justification (Student/Parent only).
+```http
+Content-Type: multipart/form-data
+
+proof: file
+attendanceId: string
+```
+
+### Major Routes
+
+#### GET /major/activities
+Get class activities.
+
+#### POST /major/activities
+Create new class activity.
+```json
+{
+  "title": "string",
+  "description": "string",
+  "deadline": "date",
+  "type": "HOMEWORK|PROJECT|EVENT|OTHER"
+}
+```
+
+#### GET /major/stats/class
+Get class statistics.
+
+### Notifications
+
+#### GET /notifications
+Get user notifications.
+
+#### POST /notifications
+Create notification (Admin only).
+```json
+{
+  "recipient": "string (userId)",
+  "type": "HOMEWORK|EXAM|PAYMENT|ADMIN",
+  "title": "string",
+  "message": "string",
+  "scheduledFor": "date?"
+}
+```
+
+### Error Responses
+
+```json
+{
+  "status": "error",
+  "message": "Error description",
+  "stack": "Error stack trace (development only)"
+}
+```
+
+## Rate Limiting
+- 100 requests per 15 minutes per IP
+- Status 429 when limit exceeded
+
+## File Upload Limits
+- Maximum file size: 10MB
+- Allowed types: PDF, JPEG, PNG, DOC, DOCX

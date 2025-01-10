@@ -1,0 +1,1870 @@
+# Documentation API - Système de Gestion Scolaire
+
+## Table des matières
+- [Configuration](#configuration)
+- [Contrôleurs](#controleurs)
+
+# Configuration Système
+
+## Configuration Générale (config/index.js)
+
+### Variables d'environnement
+```javascript
+{
+  app: {
+    port: process.env.PORT || 5000,
+    env: process.env.NODE_ENV || 'development',
+    version: '1.0.0',
+    corsOrigins: ['http://localhost:3000'] // par défaut
+  },
+  db: {
+    uri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/school_management',
+    options: {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      autoIndex: process.env.NODE_ENV !== 'production'
+    }
+  },
+  security: {
+    jwtSecret: process.env.JWT_SECRET,
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1d',
+    bcryptRounds: 12
+  },
+  logging: {
+    level: process.env.LOG_LEVEL || 'info',
+    file: process.env.LOG_FILE || 'logs/app.log'
+  }
+}
+```
+
+## Database Configuration (config/database/indexes.js)
+
+### Description
+Configure les index MongoDB pour optimiser les performances des requêtes.
+
+### Modèles indexés
+#### User
+```javascript
+- email: unique
+- username: unique
+- role
+- class + role (composite)
+- children (sparse)
+- recherche textuelle: username, firstName, lastName
+```
+
+#### Course
+```javascript
+- code: unique
+- professor
+- classes.class
+- periods.period
+- recherche textuelle: title, description
+```
+
+#### Attendance
+```javascript
+- student + date (composite)
+- course + date (composite)
+- date
+- status
+- justification.status
+```
+
+### Points d'attention
+- Index automatiquement créés au démarrage
+- Vérification des index en mode développement
+- Optimisé pour les requêtes fréquentes
+
+## Cache Configuration (config/cache.js)
+
+### Description
+Système de cache avec Redis et fallback mémoire.
+
+### Fonctionnalités
+```javascript
+// Methods
+cache.get(key)         // Récupère une valeur
+cache.set(key, value)  // Stocke une valeur (TTL par défaut: 5min)
+cache.del(key)         // Supprime une valeur
+cache.clear()          // Vide le cache
+```
+
+### Configuration
+```javascript
+{
+  redisUrl: process.env.REDIS_URL,
+  retryStrategy: {
+    maxRetries: 3,
+    maxDelay: 2000ms
+  }
+}
+```
+
+# Contrôleurs Système
+
+## BlockingController
+
+### Endpoints
+
+#### POST /api/blocking/:studentId/toggle
+```javascript
+Body: {
+  reason: string,
+  duration?: number, // en jours
+  notify?: boolean
+}
+Response: {
+  status: 'success',
+  data: {
+    id: string,
+    isBlocked: boolean,
+    blockEndDate?: Date
+  }
+}
+```
+
+#### GET /api/blocking/students
+```javascript
+Query: {
+  page?: number,
+  limit?: number,
+  sortBy?: string,
+  class?: string,
+  search?: string
+}
+```
+
+## CourseController
+
+### Endpoints
+
+#### GET /api/courses
+```javascript
+Query: {
+  page?: number,
+  limit?: number,
+  search?: string,
+  professor?: string,
+  period?: string,
+  status?: 'ACTIVE' | 'ARCHIVED'
+}
+```
+
+#### POST /api/courses/:courseId/documents
+```javascript
+Body: FormData {
+  title: string,
+  type: string,
+  file: File,
+  visibility: 'ALL' | 'GROUPS',
+  targetGroups?: string[]
+}
+```
+
+## MajorController
+
+### Endpoints
+
+#### POST /api/major/activities
+```javascript
+Body: {
+  type: string,
+  title: string,
+  description: string,
+  deadline: Date,
+  participants?: string[],
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH'
+}
+```
+
+#### GET /api/major/stats/class
+```javascript
+Query: {
+  startDate?: Date,
+  endDate?: Date,
+  type?: string
+}
+```
+
+## ScheduleController
+
+### Endpoints
+
+#### POST /api/schedule/slots
+```javascript
+Body: {
+  course: string,
+  professor: string,
+  room: string,
+  startTime: string,
+  endTime: string,
+  date: Date,
+  recurrence?: {
+    type: 'DAILY' | 'WEEKLY',
+    until: Date
+  }
+}
+```
+
+#### GET /api/schedule/conflicts
+```javascript
+Query: {
+  room?: string,
+  professor?: string,
+  startTime: string,
+  endTime: string,
+  date: Date
+}
+```
+
+## UserController
+
+### Endpoints
+
+#### GET /api/users/profile
+```javascript
+Response: {
+  user: {
+    _id: string,
+    email: string,
+    firstName: string,
+    lastName: string,
+    role: string,
+    status: string,
+    // ...autres champs
+  }
+}
+```
+
+#### PATCH /api/users/preferences
+```javascript
+Body: {
+  theme?: 'light' | 'dark' | 'system',
+  language?: string,
+  notifications?: {
+    email: boolean,
+    push: boolean,
+    types: string[]
+  }
+}
+```
+
+## AcademicController
+
+### Endpoints
+
+#### GET /api/academic/periods
+```javascript
+Query: {
+  startDate?: Date,
+  endDate?: Date,
+  status?: 'ACTIVE' | 'PLANNED' | 'COMPLETED'
+}
+Response: {
+  status: 'success',
+  data: Period[]
+}
+```
+
+#### POST /api/academic/periods
+```javascript
+Body: {
+  startDate: Date,
+  endDate: Date,
+  name: string,
+  description?: string
+}
+Validation:
+- Pas de chevauchement avec périodes existantes
+- startDate < endDate
+```
+
+### Cache
+- Clé: 'academic:periods'
+- TTL: 5 minutes
+- Invalidé après création/modification/suppression
+
+## AuthController
+
+### Endpoints
+
+#### POST /api/auth/register
+```javascript
+Body: {
+  email: string,
+  password: string,
+  firstName: string,
+  lastName: string,
+  role?: 'student' | 'professor' | 'admin'
+}
+Response: {
+  user: UserData,
+  token: JWT
+}
+```
+
+#### POST /api/auth/login
+```javascript
+Body: {
+  email: string,
+  password: string
+}
+Response: {
+  user: UserData,
+  token: JWT
+}
+```
+
+### Sécurité
+- JWT expire après 24h
+- Blocage après 5 tentatives échouées
+- Log des activités de connexion
+
+## AttendanceController
+
+### Endpoints
+
+#### GET /api/attendance
+```javascript
+Query: {
+  courseId?: string,
+  studentId?: string,
+  startDate?: Date,
+  endDate?: Date,
+  status?: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED',
+  page?: number,
+  limit?: number
+}
+```
+
+#### POST /api/attendance/bulk
+```javascript
+Body: {
+  courseId: string,
+  date: Date,
+  attendances: [{
+    studentId: string,
+    status: string,
+    note?: string
+  }]
+}
+```
+
+### Justifications
+```javascript
+POST /api/attendance/:id/justify
+Body: {
+  reason: string,
+  document?: File,
+  details?: string
+}
+States: {
+  status: ['PENDING', 'APPROVED', 'REJECTED'],
+  required: ['ABSENT']
+}
+```
+
+## DocumentController
+
+### Endpoints
+
+#### POST /api/documents/upload
+```javascript
+Body: FormData {
+  file: File,
+  type: 'COURSE' | 'ATTENDANCE' | 'ADMIN',
+  courseId?: string,
+  visibility: 'ALL' | 'SPECIFIC_GROUPS',
+  targetGroups?: string[]
+}
+```
+
+#### GET /api/documents/search
+```javascript
+Query: {
+  query?: string,
+  type?: string,
+  courseId?: string,
+  periodId?: string,
+  page?: number,
+  limit?: number,
+  sortBy?: string,
+  order?: 'asc' | 'desc'
+}
+```
+
+### Sécurité
+- Vérification des permissions par rôle
+- Validation des types de fichiers
+- Limite de taille: 10MB
+
+## NotificationController
+
+### Endpoints
+
+#### GET /api/notifications
+```javascript
+Query: {
+  type?: string,
+  isRead?: boolean,
+  page?: number,
+  limit?: number
+}
+```
+
+#### POST /api/notifications/send
+```javascript
+Body: {
+  recipients: string[],
+  title: string,
+  message: string,
+  type: 'INFO' | 'WARNING' | 'URGENT',
+  data?: object
+}
+```
+
+### Configuration "Ne pas déranger"
+```javascript
+{
+  enabled: boolean,
+  startTime: string, // HH:mm
+  endTime: string,   // HH:mm
+  days?: number[]    // 0-6 (Dimanche-Samedi)
+}
+```
+
+# Points d'attention généraux
+
+## Sécurité
+- Tous les endpoints nécessitent un JWT valide
+- Validation des entrées avec express-validator
+- Rate limiting sur les routes sensibles
+
+## Cache
+- Utilisé pour les données fréquemment accédées
+- TTL par défaut: 5 minutes
+- Invalidation automatique après modifications
+
+## Pagination
+- Présente sur toutes les routes GET de liste
+- Paramètres: page (défaut: 1), limit (défaut: 10)
+- Maximum 100 éléments par page
+
+## Logging
+- Toutes les actions sensibles sont loguées
+- Format: {timestamp, user, action, details}
+- Rotation des logs quotidienne
+
+## Erreurs
+Formats standardisés:
+```javascript
+{
+  status: 'error',
+  message: string,
+  code: number,
+  details?: object
+}
+```
+
+
+
+# Documentation des Middlewares
+
+## Table des matières
+1. [Validation](#validation)
+2. [Authentication](#authentication)
+3. [Upload](#upload)
+4. [Error Handler](#error-handler)
+5. [Security](#security)
+6. [Attendance](#attendance)
+
+## Validation
+
+### Description
+Système de validation des entrées basé sur Joi.
+
+### Usage
+```javascript
+const { validate, schemas } = require('../middleware/validation');
+
+router.post('/login', validate(schemas.auth.login), authController.login);
+```
+
+### Schémas disponibles
+#### Auth
+```javascript
+auth: {
+    login: {
+        email: string email required,
+        password: string min(6) required
+    },
+    register: {
+        email: string email required,
+        password: string min(8) required,
+        firstName: string required,
+        lastName: string required,
+        role: enum['student', 'professor', 'admin', 'parent'] required
+    }
+}
+```
+
+#### User
+```javascript
+user.update: {
+    firstName: string optional,
+    lastName: string optional,
+    email: string email optional,
+    phoneNumber: string optional,
+    address: {
+        street: string,
+        city: string,
+        postalCode: string
+    }
+}
+```
+
+#### Course
+```javascript
+course: {
+    create: {
+        title: string required,
+        code: string required,
+        description: string optional,
+        professor: ObjectId required,
+        startDate: ISO date required,
+        endDate: ISO date required (> startDate)
+    }
+}
+```
+
+## Authentication
+
+### protect Middleware
+Vérifie l'authentification via JWT.
+
+```javascript
+// Usage
+router.use(protect);
+
+// Headers requis
+Authorization: Bearer <token>
+
+// Erreurs possibles
+401: "Not authenticated. Please log in."
+401: "Invalid token or session expired."
+403: "Your account has been blocked."
+```
+
+### restrictTo Middleware
+Contrôle d'accès basé sur les rôles.
+
+```javascript
+// Usage
+router.delete('/users/:id', restrictTo('admin'), userController.deleteUser);
+
+// Erreurs possibles
+403: "You do not have permission to perform this action"
+```
+
+## Upload
+
+### Configuration
+```javascript
+const uploadOptions = {
+    maxFileSize: 10 * 1024 * 1024, // 10MB
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png']
+}
+```
+
+### Méthodes
+```javascript
+// Upload unique
+upload.single('document')
+
+// Upload multiple
+upload.multiple('documents', 5)
+
+// Validation automatique
+- Taille du fichier
+- Type MIME
+- Virus scan (si configuré)
+```
+
+### Erreurs
+```javascript
+400: "Fichier trop volumineux"
+400: "Type de fichier non autorisé"
+400: "Aucun fichier fourni"
+```
+
+## Error Handler
+
+### Fonctionnalités
+- Gestion centralisée des erreurs
+- Logging automatique
+- Formatage des réponses d'erreur
+
+### Types d'erreurs gérés
+```javascript
+// Erreurs MongoDB
+400: Validation error
+400: Duplicate field value
+
+// Erreurs JWT
+401: Invalid token
+401: Token expired
+
+// Réponse en développement
+{
+    status: string,
+    error: object,
+    message: string,
+    stack: string
+}
+
+// Réponse en production
+{
+    status: string,
+    message: string
+}
+```
+
+## Security
+
+### Headers de sécurité
+```javascript
+// Helmet configuration
+- XSS Protection
+- No Sniff
+- Hide Powered By
+- Frame Guard
+- HSTS
+
+// CORS
+origins: process.env.CORS_ORIGINS || ['http://localhost:3000']
+```
+
+## Attendance
+
+### checkActivePeriod
+Vérifie qu'une période académique est active.
+```javascript
+// Erreurs possibles
+400: "No active academic period found"
+```
+
+### validateAttendanceData
+Valide les données de présence.
+```javascript
+// Vérifications
+- Existence du cours
+- Autorisation du professeur
+- Date non future
+- Inscription de l'étudiant
+
+// Erreurs possibles
+404: "Course not found"
+403: "Not authorized to manage attendance"
+400: "Cannot mark attendance for future dates"
+400: "Student not enrolled in course"
+```
+
+### Points d'attention
+1. Validation
+   - Tous les schémas supportent la validation partielle pour les mises à jour
+   - Les messages d'erreur sont personnalisables via Joi
+   - La validation est effectuée avant le contrôleur
+
+2. Sécurité
+   - Les tokens JWT sont vérifiés à chaque requête
+   - La durée de validité des tokens est configurable
+   - Les rôles sont vérifiés de manière stricte
+
+3. Upload
+   - Les fichiers sont validés avant sauvegarde
+   - Nettoyage automatique en cas d'erreur
+   - Support du multipart/form-data
+
+4. Erreurs
+   - Toutes les erreurs sont loguées
+   - Format standardisé des réponses
+   - Stack trace uniquement en développement
+
+
+   # Documentation des Modèles de Données
+
+## Table des matières
+1. [User Model](#user-model)
+2. [Academic Models](#academic-models)
+3. [Course Models](#course-models)
+4. [Administrative Models](#administrative-models)
+5. [Activity Models](#activity-models)
+
+## User Model
+
+### User (userModel.js)
+Structure principale pour les utilisateurs du système.
+
+```javascript
+{
+  username: {
+    type: String,
+    required: true,
+    unique: true,
+    minlength: 3,
+    maxlength: 50
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    validate: isEmail
+  },
+  role: {
+    type: String,
+    enum: ['admin', 'professor', 'student', 'parent', 'major']
+  },
+  isBlocked: Boolean,
+  blockEndDate: Date,
+  class: ObjectId,  // Pour students et majors
+  children: [ObjectId],  // Pour parents
+  teachingSubjects: [ObjectId]  // Pour professors
+}
+```
+
+### UserPreference (userPreferenceModel.js)
+Préférences personnalisées des utilisateurs.
+
+```javascript
+{
+  user: ObjectId,
+  theme: {
+    type: String,
+    enum: ['light', 'dark', 'system']
+  },
+  notifications: {
+    email: Boolean,
+    push: Boolean,
+    types: [String]
+  },
+  language: {
+    type: String,
+    enum: ['fr', 'en']
+  }
+}
+```
+
+## Academic Models
+
+### AcademicPeriod (academicPeriodModel.js)
+Périodes académiques (semestres, années).
+
+```javascript
+{
+  name: String,
+  startDate: Date,
+  endDate: Date,
+  status: {
+    type: String,
+    enum: ['ACTIVE', 'UPCOMING', 'COMPLETED']
+  }
+}
+```
+
+### Class (classModel.js)
+Structure des classes.
+
+```javascript
+{
+  name: String,
+  level: String,
+  academicYear: String,
+  major: ObjectId,
+  professors: [ObjectId],
+  students: [ObjectId],
+  courses: [ObjectId],
+  stats: {
+    averageAttendance: Number,
+    averagePerformance: Number
+  }
+}
+```
+
+### Course (courseModel.js)
+Structure des cours.
+
+```javascript
+{
+  title: String,
+  code: {
+    type: String,
+    match: /^[A-Z]{3}[0-9]{3}$/
+  },
+  professor: {
+    type: ObjectId,
+    ref: 'User'
+  },
+  classes: [{
+    class: ObjectId,
+    schedule: [{
+      day: Number,
+      startTime: String,
+      endTime: String,
+      room: ObjectId
+    }]
+  }],
+  description: String,
+  objectives: [String],
+  requirements: [String]
+}
+```
+
+## Administrative Models
+
+### Attendance (attendanceModel.js)
+Suivi des présences.
+
+```javascript
+{
+  student: ObjectId,
+  course: ObjectId,
+  date: Date,
+  status: {
+    type: String,
+    enum: ['PRESENT', 'ABSENT', 'LATE', 'EXCUSED']
+  },
+  justification: {
+    reason: String,
+    document: String,
+    status: String,
+    approvedBy: ObjectId
+  }
+}
+```
+
+### Document (documentModel.js)
+Gestion des documents.
+
+```javascript
+{
+  title: String,
+  type: {
+    type: String,
+    enum: ['COURSE', 'EXERCISE', 'RESOURCE', 'HOMEWORK']
+  },
+  file: String,
+  course: ObjectId,
+  visibility: {
+    type: String,
+    enum: ['ALL', 'SPECIFIC_GROUPS']
+  },
+  targetGroups: [ObjectId],
+  downloads: [{
+    user: ObjectId,
+    downloadedAt: Date
+  }]
+}
+```
+
+### Tuition (tuitionModel.js)
+Gestion des frais de scolarité.
+
+```javascript
+{
+  student: ObjectId,
+  academicYear: ObjectId,
+  totalAmount: Number,
+  paidAmount: Number,
+  status: {
+    type: String,
+    enum: ['PAID', 'PARTIAL', 'UNPAID', 'OVERDUE']
+  },
+  payments: [{
+    amount: Number,
+    date: Date,
+    receiptNumber: String
+  }]
+}
+```
+
+## Activity Models
+
+### MajorPrivileges (models/index.js - majorPrivilegesSchema)
+Gestion des privilèges des délégués.
+
+```javascript
+{
+  user: ObjectId,
+  class: ObjectId,
+  permissions: {
+    canManageActivities: Boolean,
+    canOrganizeEvents: Boolean,
+    canViewClassStats: Boolean,
+    canSendAlerts: Boolean
+  },
+  activities: [{
+    title: String,
+    deadline: Date,
+    status: String
+  }],
+  events: [{
+    title: String,
+    date: Date,
+    type: String
+  }]
+}
+```
+
+## Points importants
+
+### Indexes
+1. User Indexes
+```javascript
+- { email: 1, role: 1 }
+- { class: 1, role: 1 }
+- { username: 'text', firstName: 'text', lastName: 'text' }
+```
+
+2. Course Indexes
+```javascript
+- { title: 'text', code: 'text' }
+- { professor: 1, 'classes.class': 1 }
+```
+
+3. Document Indexes
+```javascript
+- { course: 1, type: 1 }
+- { title: 'text', description: 'text', tags: 'text' }
+```
+
+### Validations automatiques
+1. User validations
+- Email format
+- Téléphone format
+- Rôles spécifiques
+- Contraintes parent-enfant
+
+2. Course validations
+- Format du code de cours
+- Validité du professeur
+- Chevauchements d'horaires
+
+3. Document validations
+- Type de fichier
+- Taille maximum
+- Permissions d'accès
+
+### Relations clés
+1. Hiérarchie utilisateur
+```
+User -> Class -> Course
+User (parent) -> User (student)
+User (professor) -> Course
+```
+
+2. Documents et contenus
+```
+Course -> Document
+Document -> TargetGroups
+```
+
+3. Suivi académique
+```
+Student -> Attendance -> Course
+Student -> Tuition -> AcademicYear
+```
+
+### Hooks et Middleware
+1. Pre-save hooks
+- Hachage des mots de passe (User)
+- Validation des dates (AcademicPeriod)
+- Calcul des statistiques (Class)
+
+2. Post-save hooks
+- Mise à jour des statistiques
+- Invalidation du cache
+- Notifications automatiques
+
+3. Pre-remove hooks
+- Nettoyage des fichiers (Document)
+- Mise à jour des références
+- Archivage des données
+# Documentation des Routes API
+
+[Documentation précédente...]
+
+## Exemples de Réponses
+
+### Authentification réussie
+```javascript
+// POST /api/auth/login
+{
+  "status": "success",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIs...",
+    "user": {
+      "id": "507f1f77bcf86cd799439011",
+      "email": "user@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "role": "professor",
+      "lastLogin": "2024-01-07T10:30:00Z"
+    }
+  }
+}
+```
+
+### Liste des cours
+```javascript
+// GET /api/courses
+{
+  "status": "success",
+  "data": {
+    "courses": [{
+      "id": "507f1f77bcf86cd799439011",
+      "title": "Mathématiques",
+      "code": "MAT101",
+      "professor": {
+        "id": "507f1f77bcf86cd799439012",
+        "name": "Dr. Smith"
+      },
+      "schedule": [{
+        "day": 1,
+        "startTime": "09:00",
+        "endTime": "10:30",
+        "room": "A101"
+      }]
+    }],
+    "pagination": {
+      "total": 50,
+      "page": 1,
+      "limit": 10,
+      "pages": 5
+    }
+  }
+}
+```
+
+### Document téléchargé
+```javascript
+// GET /api/documents/:id
+{
+  "status": "success",
+  "data": {
+    "document": {
+      "id": "507f1f77bcf86cd799439013",
+      "title": "Cours du 7 janvier",
+      "type": "COURSE",
+      "url": "/files/cours-7-jan.pdf",
+      "metadata": {
+        "size": 1024576,
+        "type": "application/pdf",
+        "uploadedAt": "2024-01-07T09:00:00Z"
+      },
+      "stats": {
+        "downloads": 42,
+        "lastDownload": "2024-01-07T14:30:00Z"
+      }
+    }
+  }
+}
+```
+
+## Cas d'Erreur Spécifiques
+
+### 1. Erreurs d'authentification
+```javascript
+// Token invalide
+{
+  "status": "error",
+  "code": "AUTH_001",
+  "message": "Token invalide ou expiré",
+  "statusCode": 401
+}
+
+// Permissions insuffisantes
+{
+  "status": "error",
+  "code": "AUTH_002",
+  "message": "Accès non autorisé à cette ressource",
+  "statusCode": 403
+}
+```
+
+### 2. Erreurs de validation
+```javascript
+// Données invalides
+{
+  "status": "error",
+  "code": "VAL_001",
+  "message": "Données invalides",
+  "errors": [
+    {
+      "field": "email",
+      "message": "Format d'email invalide"
+    },
+    {
+      "field": "password",
+      "message": "Le mot de passe doit contenir au moins 8 caractères"
+    }
+  ],
+  "statusCode": 400
+}
+```
+
+### 3. Erreurs métier
+```javascript
+// Conflit d'horaire
+{
+  "status": "error",
+  "code": "BUS_001",
+  "message": "Conflit d'horaire détecté",
+  "details": {
+    "conflictingSlot": {
+      "course": "Mathématiques",
+      "time": "09:00-10:30"
+    }
+  },
+  "statusCode": 409
+}
+
+// Capacité dépassée
+{
+  "status": "error",
+  "code": "BUS_002",
+  "message": "Capacité de la salle dépassée",
+  "details": {
+    "roomCapacity": 30,
+    "requestedCapacity": 35
+  },
+  "statusCode": 400
+}
+```
+
+## Scénarios d'Utilisation Courants
+
+### 1. Gestion des présences
+```javascript
+// 1. Récupérer la liste des étudiants du cours
+GET /api/courses/:courseId/students
+
+// 2. Marquer les présences en masse
+POST /api/attendance/bulk
+{
+  "courseId": "507f...",
+  "date": "2024-01-07",
+  "attendances": [
+    { "studentId": "507f...", "status": "PRESENT" },
+    { "studentId": "508f...", "status": "ABSENT" }
+  ]
+}
+
+// 3. Gérer une justification d'absence
+POST /api/attendance/:id/justification
+{
+  "reason": "Certificat médical",
+  "document": "file.pdf"
+}
+```
+
+### 2. Gestion des documents de cours
+```javascript
+// 1. Upload d'un nouveau document
+POST /api/documents/course-materials
+FormData:
+  - file: [fichier]
+  - courseId: "507f..."
+  - type: "COURSE"
+  - title: "Cours du 7 janvier"
+
+// 2. Définir la visibilité
+PATCH /api/documents/:id
+{
+  "visibility": "SPECIFIC_GROUPS",
+  "targetGroups": ["group1", "group2"]
+}
+
+// 3. Suivre les téléchargements
+GET /api/documents/:id/stats
+```
+
+### 3. Gestion des emplois du temps
+```javascript
+// 1. Vérifier les disponibilités
+GET /api/schedule/check-conflicts
+{
+  "startTime": "09:00",
+  "endTime": "10:30",
+  "day": 1,
+  "room": "507f..."
+}
+
+// 2. Créer un créneau
+POST /api/schedule/slots
+{
+  "course": "507f...",
+  "startTime": "09:00",
+  "endTime": "10:30",
+  "day": 1,
+  "room": "507f...",
+  "recurrence": {
+    "type": "WEEKLY",
+    "until": "2024-06-30"
+  }
+}
+```
+
+## Optimisations de Performance
+
+### 1. Mise en cache
+```javascript
+// En-têtes de cache pour les ressources statiques
+Cache-Control: public, max-age=3600
+ETag: "33a64df551425fcc55e4d42a148795d9f25f89d4"
+
+// Invalidation du cache
+DELETE /api/cache/documents/:id
+DELETE /api/cache/courses/:id
+```
+
+### 2. Pagination optimisée
+```javascript
+// Utilisation de curseurs pour la pagination
+GET /api/courses?after=507f1f77bcf86cd799439011&limit=10
+
+// Projection des champs
+GET /api/courses?fields=title,code,professor
+```
+
+### 3. Requêtes en lot (Batch)
+```javascript
+// Récupération multiple
+GET /api/documents/batch?ids=507f1f77,507f1f78,507f1f79
+
+// Mise à jour multiple
+PATCH /api/documents/batch
+{
+  "ids": ["507f1f77", "507f1f78"],
+  "updates": {
+    "visibility": "ALL"
+  }
+}
+```
+
+### 4. Rate Limiting
+```javascript
+// En-têtes de limitation
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 98
+X-RateLimit-Reset: 1640995200
+```
+
+### 5. Compression
+```javascript
+// En-têtes de compression
+Accept-Encoding: gzip, deflate
+Content-Encoding: gzip
+```
+
+### 6. Mise en file d'attente des tâches lourdes
+```javascript
+// Génération de rapport
+POST /api/reports/generate
+{
+  "type": "ATTENDANCE",
+  "period": "2024-01"
+}
+
+Response:
+{
+  "status": "success",
+  "data": {
+    "jobId": "job123",
+    "estimatedTime": 120 // secondes
+  }
+}
+
+// Vérification du statut
+GET /api/jobs/job123
+```
+1. [Routes d'authentification](#routes-dauthentification)
+2. [Routes académiques](#routes-académiques)
+3. [Routes administratives](#routes-administratives)
+4. [Routes des documents](#routes-des-documents)
+5. [Routes de présence](#routes-de-présence)
+6. [Routes des utilisateurs](#routes-des-utilisateurs)
+
+## Routes d'authentification
+Base URL: `/api/auth`
+
+### POST /register
+Inscription d'un nouvel utilisateur.
+```javascript
+Body: {
+  email: string,         // required, format email
+  password: string,      // required, min 8 caractères
+  firstName: string,     // required
+  lastName: string,      // required
+  role: 'student' | 'professor' | 'admin' | 'parent'
+}
+```
+
+### POST /login
+Connexion utilisateur.
+```javascript
+Body: {
+  email: string,     // required
+  password: string   // required
+}
+Response: {
+  token: string,
+  user: UserObject
+}
+```
+
+### POST /forgot-password
+Demande de réinitialisation de mot de passe.
+```javascript
+Body: {
+  email: string  // required
+}
+```
+
+### POST /reset-password/:token
+Réinitialisation du mot de passe.
+```javascript
+Body: {
+  password: string,         // required, min 8 caractères
+  passwordConfirm: string   // required, doit correspondre
+}
+```
+
+## Routes académiques
+Base URL: `/api/academic`
+
+### Périodes académiques
+
+#### GET /periods
+Récupère toutes les périodes académiques.
+```javascript
+Query: {
+  status?: 'ACTIVE' | 'UPCOMING' | 'COMPLETED',
+  startDate?: Date,
+  endDate?: Date
+}
+```
+
+#### POST /periods (Admin only)
+Crée une nouvelle période.
+```javascript
+Body: {
+  name: string,       // required
+  startDate: Date,    // required
+  endDate: Date,      // required
+  description?: string
+}
+```
+
+### Rapports
+
+#### GET /reports
+```javascript
+Query: {
+  periodId?: string,
+  type: 'ATTENDANCE' | 'PERFORMANCE' | 'GRADES',
+  startDate?: Date,
+  endDate?: Date
+}
+```
+
+## Routes administratives
+Base URL: `/api/admin`
+
+### Gestion des privilèges
+
+#### POST /privileges
+```javascript
+Body: {
+  userId: string,     // required
+  role: string,       // required
+  permissions: string[]  // required
+}
+```
+
+### Gestion des étudiants
+
+#### PATCH /students/:studentId/status
+```javascript
+Body: {
+  isBlocked: boolean,    // required
+  reason: string,        // required
+  duration?: number      // required si isBlocked=true
+}
+```
+
+## Routes des documents
+Base URL: `/api/documents`
+
+### POST /course-materials
+Upload de documents de cours.
+```javascript
+Headers: {
+  Content-Type: 'multipart/form-data'
+}
+Body: {
+  courseId: string,      // required
+  type: string,          // required
+  title: string,         // required
+  files: File[],         // required
+  visibility?: 'ALL' | 'SPECIFIC_GROUPS',
+  targetGroups?: string[]
+}
+```
+
+### GET /search
+Recherche de documents.
+```javascript
+Query: {
+  query?: string,
+  type?: string,
+  courseId?: string,
+  page?: number,
+  limit?: number
+}
+```
+
+## Routes de présence
+Base URL: `/api/attendance`
+
+### GET /
+Récupération des présences.
+```javascript
+Query: {
+  courseId?: string,
+  studentId?: string,
+  startDate?: Date,
+  endDate?: Date,
+  status?: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED',
+  page?: number,
+  limit?: number
+}
+```
+
+### POST /bulk
+Création en masse de présences.
+```javascript
+Body: {
+  courseId: string,           // required
+  date: Date,                 // required
+  attendances: [{
+    studentId: string,
+    status: string,
+    note?: string
+  }]
+}
+```
+
+## Routes des utilisateurs
+Base URL: `/api/users`
+
+### GET /profile
+Récupère le profil de l'utilisateur connecté.
+
+### PATCH /profile
+Met à jour le profil.
+```javascript
+Body: {
+  firstName?: string,
+  lastName?: string,
+  email?: string,
+  phoneNumber?: string,
+  address?: {
+    street: string,
+    city: string,
+    postalCode: string
+  }
+}
+```
+
+### GET /preferences
+Récupère les préférences utilisateur.
+
+### PATCH /preferences
+Met à jour les préférences.
+```javascript
+Body: {
+  theme?: 'light' | 'dark' | 'system',
+  language?: 'fr' | 'en',
+  notifications?: {
+    email: boolean,
+    push: boolean,
+    types: string[]
+  }
+}
+```
+
+## Sécurité et Authentification
+
+### Headers requis
+```javascript
+Headers: {
+  Authorization: 'Bearer <token>'
+}
+```
+
+### Gestion des erreurs
+Format standard des erreurs :
+```javascript
+{
+  status: 'error',
+  message: string,
+  errors?: [{
+    field: string,
+    message: string
+  }]
+}
+```
+
+### Codes de retour
+- 200: Succès
+- 201: Création réussie
+- 400: Erreur de validation
+- 401: Non authentifié
+- 403: Non autorisé
+- 404: Ressource non trouvée
+- 500: Erreur serveur
+
+## Validations
+
+### Règles communes
+- ObjectId: string hexadécimal de 24 caractères
+- Dates: format ISO
+- Pagination:
+  - page: minimum 1
+  - limit: entre 1 et 100
+- Email: format valide
+- Password: minimum 8 caractères
+
+### Exemples de validation
+```javascript
+// Exemple pour la création d'un document
+{
+  title: string,       // max 200 caractères
+  type: enum,          // valeurs spécifiques
+  visibility: enum,    // ALL ou SPECIFIC_GROUPS
+  targetGroups: conditionnel sur visibility
+}
+```
+
+## Points d'attention
+1. Authentification
+   - Token JWT requis pour toutes les routes protégées
+   - Durée de validité du token: 24h
+
+2. Pagination
+   - Présente sur toutes les routes de liste
+   - Valeurs par défaut: page=1, limit=10
+
+3. Cache
+   - Utilisé pour les données statiques
+   - Durée de validité configurable
+   # Documentation Technique
+
+## Table des matières
+1. [Services](#services)
+2. [Utilitaires](#utilitaires)
+3. [Configuration Serveur](#configuration-serveur)
+
+## Services
+
+### FileService
+Service de gestion des fichiers.
+
+#### Configuration
+```javascript
+{
+  baseUploadPath: '/uploads',
+  maxFileSize: 10 * 1024 * 1024, // 10MB
+  allowedMimeTypes: {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'application/pdf': 'pdf',
+    // ...autres types
+  }
+}
+```
+
+#### Méthodes
+```javascript
+// Upload de fichier
+configureUpload(options: {
+  directory?: string,
+  maxSize?: number
+})
+
+// Validation
+validateFile(file: {
+  size: number,
+  mimetype: string,
+  originalname: string
+}): Promise<string[]>
+
+// Opérations sur les fichiers
+saveFile(file, directory): Promise<FileInfo>
+deleteFile(filePath): Promise<boolean>
+getFile(filePath): Promise<FileData>
+```
+
+### NotificationService
+Gestion des notifications système.
+
+#### Méthodes
+```javascript
+// Envoi de notifications
+sendEmail(userId, {
+  subject: string,
+  message: string,
+  template?: string
+})
+
+sendPushNotification(userId, {
+  title: string,
+  message: string,
+  data?: object
+})
+
+// Gestion des notifications
+createNotification(data: NotificationData)
+markAsRead(notificationId, userId)
+getUnreadNotifications(userId)
+```
+
+### TokenService
+Gestion des jetons d'authentification.
+
+#### Méthodes
+```javascript
+// Génération de tokens
+generateTokens(userId: string): {
+  accessToken: string,
+  refreshToken: string
+}
+
+// Validation et rafraîchissement
+verifyToken(token: string, isRefresh: boolean)
+refreshTokens(refreshToken: string)
+```
+
+## Utilitaires
+
+### ErrorHandlers
+Gestion centralisée des erreurs.
+
+```javascript
+// Types d'erreurs personnalisés
+AppError: Erreur générique personnalisée
+ValidationError: Erreurs de validation
+AuthenticationError: Erreurs d'authentification
+AuthorizationError: Erreurs d'autorisation
+NotFoundError: Ressources non trouvées
+
+// Middleware de capture
+catchAsync(fn): Promise<void>
+formatError(err): AppError
+```
+
+### Logger
+Configuration Winston pour le logging.
+
+```javascript
+// Niveaux de log
+error: Erreurs critiques
+warn: Avertissements
+info: Informations générales
+debug: Informations de débogage
+
+// Transport
+Production: {
+  Console: Logs colorés
+  File: {
+    error.log: Erreurs uniquement
+    combined.log: Tous les logs
+  }
+}
+```
+
+### Notifications
+Utilitaires pour les notifications.
+
+```javascript
+// Fonctions principales
+notifyParticipants(users, notification)
+createClassNotification(classId, notification)
+sendEmailNotification(userId, notification)
+sendPushNotification(userId, notification)
+```
+
+## Configuration Serveur
+
+### Sécurité
+```javascript
+// Middlewares de sécurité
+helmet: Protection des en-têtes HTTP
+cors: Configuration CORS
+rateLimit: Limitation des requêtes ({
+  windowMs: 15 * 60 * 1000,
+  max: 100
+})
+mongoSanitize: Protection NoSQL injection
+xss: Protection XSS
+```
+
+### Middleware Global
+```javascript
+// Parsing
+express.json({ limit: '10mb' })
+express.urlencoded({ extended: true })
+
+// Compression
+compression()
+
+// Logging
+morgan: {
+  dev: Développement
+  combined: Production
+}
+```
+
+### Routes API
+```javascript
+// Points d'entrée
+/api/auth: Authentication
+/api/users: Gestion utilisateurs
+/api/academic: Gestion académique
+/api/documents: Gestion documents
+/api/notifications: Notifications
+/api/schedule: Emplois du temps
+```
+
+### Gestion des erreurs
+```javascript
+// Format standard
+{
+  status: string,
+  message: string,
+  errors?: Array<{
+    field: string,
+    message: string
+  }>
+}
+```
+
+## Points d'attention
+
+### 1. Gestion des fichiers
+- Nettoyage automatique des fichiers temporaires
+- Validation stricte des types de fichiers
+- Stockage organisé par types de documents
+
+### 2. Sécurité
+```javascript
+// En-têtes de sécurité
+helmet.contentSecurityPolicy()
+helmet.crossOriginEmbedderPolicy()
+helmet.xssFilter()
+
+// Rate Limiting
+Limites par IP
+Limites par route
+```
+
+### 3. Performance
+```javascript
+// Compression
+Gzip pour les réponses
+
+// Cache
+etag: true
+maxAge: '1d'
+
+// MongoDB
+autoIndex: false en production
+poolSize: 10
+```
+
+### 4. Monitoring
+
+#### Logs
+```javascript
+// Structure
+{
+  timestamp: Date,
+  level: string,
+  message: string,
+  metadata: object
+}
+
+// Rotation
+maxFiles: 5
+maxSize: 5MB
+```
+
+#### Métriques
+```javascript
+// Points de mesure
+/api/health: Statut serveur
+MongoDB connection status
+File system status
+```
+
+### 5. Arrêt gracieux
+```javascript
+// Séquence
+1. Arrêt du serveur HTTP
+2. Fermeture connexions DB
+3. Nettoyage ressources
+4. Arrêt forcé après timeout
+```
+
+## Scénarios d'utilisation
+
+### 1. Upload de fichier
+```javascript
+// 1. Validation initiale
+validateFile(file)
+
+// 2. Sauvegarde
+const fileInfo = await fileService.saveFile(file, 'documents')
+
+// 3. Création enregistrement
+await Document.create({
+  ...fileInfo,
+  uploadedBy: userId
+})
+```
+
+### 2. Envoi de notification
+```javascript
+// 1. Création notification
+const notification = await createNotification({
+  type: 'COURSE_UPDATE',
+  message: 'Nouveau document disponible'
+})
+
+// 2. Notification utilisateurs
+await notifyParticipants(studentIds, notification)
+```
+
+### 3. Authentification
+```javascript
+// 1. Génération tokens
+const tokens = TokenService.generateTokens(userId)
+
+// 2. Sauvegarde refresh token
+await TokenService.saveRefreshToken(userId, tokens.refreshToken)
+
+// 3. Envoi réponse
+res.json({ tokens, user })
+```
+
