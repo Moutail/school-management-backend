@@ -1,9 +1,20 @@
 // src/server.js
 const dotenv = require('dotenv');
-const result = dotenv.config();
 
-if (result.error) {
-    console.error('Error loading .env file:', result.error);
+// Configuration de dotenv en fonction de l'environnement
+if (process.env.NODE_ENV !== 'production') {
+    const result = dotenv.config();
+    if (result.error) {
+        console.warn('Warning: .env file not found, using environment variables');
+    }
+}
+
+// Vérification des variables essentielles
+const requiredEnvVars = ['JWT_SECRET', 'REFRESH_SECRET', 'MONGODB_URI'];
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+    console.error('Missing required environment variables:', missingEnvVars.join(', '));
     process.exit(1);
 }
 
