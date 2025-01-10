@@ -188,8 +188,6 @@ app.use(errorHandler);
 
 // Configuration MongoDB
 const mongooseOptions = {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
     family: 4,
