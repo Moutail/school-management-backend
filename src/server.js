@@ -99,9 +99,7 @@ app.use('/api/', limiter);
 
 // Configuration CORS
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'development' 
-        ? ['http://localhost:5173', 'http://localhost:3000']  // Ajoutez tous vos origines de développement
-        : process.env.ALLOWED_ORIGINS.split(','),
+    origin: origin: 'https://school-management-frontend-1xe1r508l-moutails-projects.vercel.app',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
